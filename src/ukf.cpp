@@ -55,6 +55,12 @@ UKF::UKF() {
 
   ///* Weights of sigma points
   weights_ = VectorXd(2 * n_aug_+1);
+  double weight_0 = lambda_ / (lambda_ + n_aug_);
+  weights_(0) = weight_0;
+  for (int i = 1; i < 2 * n_aug_ + 1; i++) {
+    double weight = 0.5 / (n_aug_ + lambda_);
+    weights_(i) = weight;
+  }
 }
 
 UKF::~UKF() {}
@@ -70,6 +76,61 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   Complete this function! Make sure you switch between lidar and radar
   measurements.
   */
+  if (!is_initialized_) {
+    x_ = VectorXd(4);
+    time_us_ = measurement_pack.timestamp_;
+    
+    double x, y, vx = 0, vy = 0;
+    if (measurement_pack.sensor_type_ == MeasurementPackage::RADAR) {
+      /**
+      Convert radar from polar to cartesian coordinates and initialize state.
+      */
+      double rho = measurement_pack.raw_measurements_[0];
+      double phi = measurement_pack.raw_measurements_[1];
+      double rho_dot = measurement_pack.raw_measurements_[2];
+      x = rho * cos(phi);
+      y = rho * sin(phi);
+      vx = rho_dot * cos(phi);
+      vy = rho_dot * sin(phi);
+    }
+    else if (measurement_pack.sensor_type_ == MeasurementPackage::LASER) {
+      /**
+      Initialize state.
+      */
+      x = measurement_pack.raw_measurements_[0];
+      y = measurement_pack.raw_measurements_[1];
+    }
+    if (x < EPS)
+      x = EPS;
+    if (y < EPS)
+      y = EPS;
+    ekf_.x_ << x, y, vx, vy;
+    cout << "UKF initial: " << endl;
+    cout << "x_ = " << ekf_.x_ << endl;
+
+    P_ = MatrixXd(n_aug_, n_aug_);
+    P_ << 1, 0, 0, 0, 0, 0, 0,
+          0, 1, 0, 0, 0, 0, 0,
+          0, 0, 1, 0, 0, 0, 0,
+          0, 0, 0, 1, 0, 0, 0,
+          0, 0, 0, 0, 1, 0, 0,
+          0, 0, 0, 0, 0, 1, 0,
+          0, 0, 0, 0, 0, 0, 1;
+    cout << "P_ = " << P_ << endl;
+
+    // done initializing, no need to predict or update
+    is_initialized_ = true;
+    return;
+  }
+
+  double dt = (measurement_pack.timestamp_ - time_us_) / 1000000.0;
+  time_us_ = measurement_pack.timestamp_;
+  Prediction(dt);
+  if (measurement_pack.sensor_type_ == MeasurementPackage::RADAR) {
+    UpdateRadar(measurement_pack);
+  } else {
+    UpdateLidar(measurement_pack);
+  }
 }
 
 /**
